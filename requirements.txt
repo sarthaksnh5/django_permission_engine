@@ -1,0 +1,5 @@
+# Core dependencies
+# Note: These use flexible version ranges to avoid conflicts with existing installations
+# The library will work with any version >= the minimum specified
+Django>=3.2
+djangorestframework>=3.12
