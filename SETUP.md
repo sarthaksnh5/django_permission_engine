@@ -130,9 +130,75 @@ UPR_CONFIG = {
     'validate_on_startup': True,  # Validate permissions on startup
     'strict_mode': True,           # Fail on inconsistencies (production)
     'auto_sync': False,            # Don't auto-sync (use management command)
-    'orphan_action': 'warn',       # How to handle orphaned permissions
+    'orphan_action': 'delete',     # How to handle orphaned permissions: 'delete', 'warn', or 'error'
+    # Optional: Custom function to control who can manage permissions
+    # If not provided, defaults to superuser only
+    'can_manage_permissions': None,  # See "Configuring Permission Management Access" below
 }
 ```
+
+#### Configuring Permission Management Access
+
+By default, only superusers can manage permissions via the API. You can customize this by providing a function in `UPR_CONFIG['can_manage_permissions']`.
+
+**Option 1: Direct Function Reference**
+
+```python
+# In your settings.py or a separate permissions.py file
+def can_manage_permissions(request):
+    """
+    Custom function to determine who can manage permissions.
+    
+    Args:
+        request: DRF Request object
+        
+    Returns:
+        bool: True if user can manage permissions, False otherwise
+    """
+    user = request.user
+    # Example: Allow superusers and users with a specific permission
+    if user.is_superuser:
+        return True
+    
+    # Check if user has a specific permission
+    # (You can use your own permission checking logic here)
+    if hasattr(user, 'role') and user.role == 'permission_manager':
+        return True
+    
+    return False
+
+# In settings.py
+UPR_CONFIG = {
+    'can_manage_permissions': can_manage_permissions,  # Direct function reference
+    # ... other config
+}
+```
+
+**Option 2: String Path to Function**
+
+```python
+# In settings.py
+UPR_CONFIG = {
+    'can_manage_permissions': 'myapp.permissions.can_manage_permissions',  # String path
+    # ... other config
+}
+```
+
+**Option 3: Default Behavior (Superuser Only)**
+
+```python
+# In settings.py
+UPR_CONFIG = {
+    # Don't set 'can_manage_permissions' or set it to None
+    # Defaults to superuser only
+    # ... other config
+}
+```
+
+**Important Notes:**
+- If the function raises an exception, it falls back to superuser check
+- The function receives the DRF `Request` object as the only parameter
+- The function must return a boolean (`True` = can manage, `False` = cannot manage)
 
 ### Step 3: Run Migrations
 
@@ -208,14 +274,20 @@ default_app_config = 'myapp.apps.MyAppConfig'
 
 ```bash
 # Sync permissions from code to database
+# By default, orphaned permissions (not in code) will be deleted
 python manage.py upr_sync
 
 # Or with verbose output
 python manage.py upr_sync --verbose
 
-# Dry run to see what would change
+# Dry run to see what would change (without making changes)
 python manage.py upr_sync --dry-run
+
+# Keep orphaned permissions (don't delete them)
+python manage.py upr_sync --keep-orphans
 ```
+
+**Important:** By default, `upr_sync` will **delete orphaned permissions** (permissions that exist in the database but are no longer defined in your code). This keeps your database clean and prevents drift. If you want to keep orphaned permissions, use the `--keep-orphans` flag.
 
 ### Step 3: Assign Permissions to Users
 
@@ -488,7 +560,7 @@ This section explains how to assign, update, and revoke permissions for users. Y
 
 ### Method 1: Using the Permission Management API (Recommended)
 
-The library provides a complete REST API for managing user permissions. **All endpoints require admin authentication** (`is_staff=True`).
+The library provides a complete REST API for managing user permissions. **By default, all endpoints require superuser authentication** (`is_superuser=True`). You can customize this behavior using `UPR_CONFIG['can_manage_permissions']` (see configuration section above).
 
 #### API Endpoints
 
@@ -872,8 +944,8 @@ python manage.py upr_sync
 # Dry run (see what would change)
 python manage.py upr_sync --dry-run
 
-# Clean orphaned permissions
-python manage.py upr_sync --clean-orphans
+# Keep orphaned permissions (default: they are deleted)
+python manage.py upr_sync --keep-orphans
 
 # Verbose output
 python manage.py upr_sync --verbose

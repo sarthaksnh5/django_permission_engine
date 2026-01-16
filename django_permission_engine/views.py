@@ -28,7 +28,7 @@ class PermissionCatalogViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]  # Or IsAdminUser for stricter access
 
     @action(detail=False, methods=['get'])
-    def catalog(self, request):
+    def catalog(self, request, *args, **kwargs):
         """
         Get full permission catalog.
 
@@ -86,7 +86,7 @@ class PermissionCatalogViewSet(viewsets.ViewSet):
         return Response(catalog)
 
     @action(detail=False, methods=['get'], url_path='catalog/(?P<module>[^/.]+)')
-    def module_catalog(self, request, module=None):
+    def module_catalog(self, request, module=None, *args, **kwargs):
         """
         Get catalog for specific module.
 

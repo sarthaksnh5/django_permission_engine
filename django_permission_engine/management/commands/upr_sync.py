@@ -22,9 +22,9 @@ class Command(BaseCommand):
             help='Force sync even with warnings',
         )
         parser.add_argument(
-            '--clean-orphans',
+            '--keep-orphans',
             action='store_true',
-            help='Delete orphaned permissions',
+            help='Keep orphaned permissions (default: delete them)',
         )
         parser.add_argument(
             '--verbose',
@@ -36,17 +36,27 @@ class Command(BaseCommand):
         """Execute sync command"""
         dry_run = options['dry_run']
         force = options['force']
-        clean_orphans = options['clean_orphans']
+        keep_orphans = options['keep_orphans']
         verbose = options['verbose']
 
         # Get registry
         registry = get_registry()
 
-        # Set orphan action
-        if clean_orphans:
-            registry.orphan_action = 'delete'
-        elif not force:
+        # Set orphan action - default to delete (clean orphans by default)
+        if keep_orphans:
+            # Only warn if user explicitly wants to keep orphans
             registry.orphan_action = 'warn'
+            if verbose:
+                self.stdout.write(
+                    self.style.WARNING('Orphaned permissions will be kept (not deleted)')
+                )
+        else:
+            # Default behavior: delete orphaned permissions
+            registry.orphan_action = 'delete'
+            if verbose:
+                self.stdout.write(
+                    self.style.SUCCESS('Orphaned permissions will be deleted')
+                )
 
         try:
             # Validate first
@@ -82,6 +92,7 @@ class Command(BaseCommand):
 
     def _display_plan(self, plan, verbose):
         """Display sync plan"""
+        registry = get_registry()
         self.stdout.write('\nSync Plan:')
 
         if plan['create']:
@@ -101,19 +112,26 @@ class Command(BaseCommand):
                     self.stdout.write(f'    - {perm.key}')
 
         if plan['orphaned']:
-            self.stdout.write(
-                self.style.ERROR(f'  Orphaned: {len(plan["orphaned"])} permissions')
-            )
+            if registry.orphan_action == 'delete':
+                self.stdout.write(
+                    self.style.WARNING(f'  Would delete: {len(plan["orphaned"])} orphaned permissions')
+                )
+            else:
+                self.stdout.write(
+                    self.style.WARNING(f'  Orphaned: {len(plan["orphaned"])} permissions (would be kept)')
+                )
             if verbose:
                 for perm in plan['orphaned']:
                     self.stdout.write(f'    - {perm.key}')
 
-        unchanged = len(get_registry().get_all_permissions()) - len(plan['create']) - len(plan['update'])
+        unchanged = len(registry.get_all_permissions()) - len(plan['create']) - len(plan['update'])
         if unchanged > 0:
             self.stdout.write(f'  Unchanged: {unchanged} permissions')
 
     def _display_result(self, result, verbose):
         """Display sync result"""
+        registry = get_registry()
+        
         if result['created']:
             self.stdout.write(
                 self.style.SUCCESS(f'  Created: {len(result["created"])} permissions')
@@ -131,14 +149,19 @@ class Command(BaseCommand):
                     self.stdout.write(f'    - {key}')
 
         if result['orphaned']:
-            self.stdout.write(
-                self.style.ERROR(f'  Orphaned: {len(result["orphaned"])} permissions')
-            )
+            if registry.orphan_action == 'delete':
+                self.stdout.write(
+                    self.style.SUCCESS(f'  Deleted: {len(result["orphaned"])} orphaned permissions')
+                )
+            else:
+                self.stdout.write(
+                    self.style.WARNING(f'  Orphaned: {len(result["orphaned"])} permissions (kept)')
+                )
             if verbose:
                 for key in result['orphaned']:
                     self.stdout.write(f'    - {key}')
 
-        total = len(get_registry().get_all_permissions())
+        total = len(registry.get_all_permissions())
         unchanged = total - len(result['created']) - len(result['updated'])
         if unchanged > 0:
             self.stdout.write(f'  Unchanged: {unchanged} permissions')

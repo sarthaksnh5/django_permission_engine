@@ -1,6 +1,6 @@
 # Permission Management API
 
-This document describes the API endpoints for managing user permissions. All endpoints require **admin authentication** (user must be a staff/admin user).
+This document describes the API endpoints for managing user permissions. Access control is **configurable** via `UPR_CONFIG['can_manage_permissions']`. By default, only superusers can access these endpoints.
 
 ## Base URL
 
@@ -8,9 +8,59 @@ All endpoints are prefixed with `/api/permissions/`
 
 ## Authentication
 
-All endpoints require:
+Access control is configurable. By default:
 - User must be authenticated
-- User must be a staff/admin user (`IsAdminUser` permission class)
+- User must be a superuser (`is_superuser=True`)
+
+### Configuring Access Control
+
+You can customize who can manage permissions by setting `UPR_CONFIG['can_manage_permissions']` in your Django settings:
+
+```python
+# settings.py
+
+# Option 1: Direct function reference
+def can_manage_permissions(request):
+    """Custom function to determine access"""
+    user = request.user
+    # Your custom logic here
+    return user.is_superuser or (hasattr(user, 'role') and user.role == 'admin')
+
+UPR_CONFIG = {
+    'can_manage_permissions': can_manage_permissions,
+}
+
+# Option 2: String path to function
+UPR_CONFIG = {
+    'can_manage_permissions': 'myapp.permissions.can_manage_permissions',
+}
+
+# Option 3: Default (superuser only) - don't set the key or set to None
+UPR_CONFIG = {
+    # 'can_manage_permissions' not set = superuser only
+}
+```
+
+**Function Signature:**
+```python
+def can_manage_permissions(request) -> bool:
+    """
+    Determine if the user can manage permissions.
+    
+    Args:
+        request: DRF Request object
+        
+    Returns:
+        bool: True if user can manage permissions, False otherwise
+    """
+    # Your logic here
+    return True or False
+```
+
+**Important:**
+- If the function raises an exception, it falls back to superuser check
+- The function receives the DRF `Request` object as the only parameter
+- Must return a boolean value
 
 ## Endpoints
 
@@ -20,7 +70,7 @@ Get all permissions assigned to a specific user.
 
 **Endpoint:** `GET /api/permissions/users/{user_id}/`
 
-**Authentication:** Admin only
+**Authentication:** Configurable (default: superuser only)
 
 **Response:**
 ```json
@@ -64,7 +114,7 @@ Assign a single permission to a user.
 
 **Endpoint:** `POST /api/permissions/users/{user_id}/assign/`
 
-**Authentication:** Admin only
+**Authentication:** Configurable (default: superuser only)
 
 **Request Body:**
 ```json
@@ -106,7 +156,7 @@ Remove a permission from a user.
 
 **Endpoint:** `POST /api/permissions/users/{user_id}/revoke/`
 
-**Authentication:** Admin only
+**Authentication:** Configurable (default: superuser only)
 
 **Request Body:**
 ```json
@@ -146,7 +196,7 @@ Assign multiple permissions to multiple users at once.
 
 **Endpoint:** `POST /api/permissions/bulk-assign/`
 
-**Authentication:** Admin only
+**Authentication:** Configurable (default: superuser only)
 
 **Request Body:**
 ```json
@@ -192,7 +242,7 @@ Remove multiple permissions from multiple users at once.
 
 **Endpoint:** `POST /api/permissions/bulk-revoke/`
 
-**Authentication:** Admin only
+**Authentication:** Configurable (default: superuser only)
 
 **Request Body:**
 ```json
@@ -354,11 +404,12 @@ curl -X GET \
 
 ## Security Notes
 
-1. **Admin Only**: All endpoints require admin authentication
-2. **No Public Access**: Regular authenticated users cannot access these endpoints
-3. **Audit Trail**: All assignments track `granted_by` (the admin who assigned)
+1. **Configurable Access**: Access control is configurable via `UPR_CONFIG['can_manage_permissions']` (default: superuser only)
+2. **No Public Access**: Regular authenticated users cannot access these endpoints by default
+3. **Audit Trail**: All assignments track `granted_by` (the user who assigned the permission)
 4. **Active Permissions Only**: Only active permissions can be assigned
 5. **Validation**: All user IDs and permission keys are validated before assignment
+6. **Fallback Security**: If custom permission function fails, falls back to superuser check
 
 ---
 

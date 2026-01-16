@@ -66,8 +66,5 @@ exclude_lines = [
     "if TYPE_CHECKING:",
 ]
 
-[project]
-name = "django-permission-engine"
-version = "0.1.0"
-description = "Unified Permission Registry (UPR) for Django & DRF"
-authors = [{name = "Sarthak", email = "sarthaksnh5@gmail.com"}]
+# Project metadata is defined in setup.py
+# [project] table removed to avoid conflicts with setup.py

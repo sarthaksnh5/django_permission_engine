@@ -1,15 +1,75 @@
 """
 Permission Management API for assigning/revoking user permissions
 """
+from typing import TYPE_CHECKING
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
+
+if TYPE_CHECKING:
+    from rest_framework.permissions import BasePermission
+    from rest_framework.request import Request
+
+
+def _get_base_permission_class():
+    """Lazy import to avoid AppRegistryNotReady"""
+    try:
+        from rest_framework.permissions import BasePermission
+        return BasePermission
+    except Exception:
+        return object
+
+
+class ConfigurablePermissionManagementPermission(_get_base_permission_class()):
+    """
+    Configurable permission class for permission management API.
+    
+    Checks UPR_CONFIG['can_manage_permissions'] function if provided,
+    otherwise defaults to superuser check.
+    """
+    
+    def has_permission(self, request, view) -> bool:
+        """
+        Check if user can manage permissions.
+        
+        Priority:
+        1. If UPR_CONFIG['can_manage_permissions'] function is provided, use it
+        2. Otherwise, check if user is superuser
+        """
+        from django.conf import settings
+        
+        if not request.user or not request.user.is_authenticated:
+            return False
+        
+        # Get config
+        upr_config = getattr(settings, "UPR_CONFIG", {})
+        can_manage_permissions_func = upr_config.get("can_manage_permissions", None)
+        
+        # If custom function is provided, use it
+        if can_manage_permissions_func:
+            try:
+                # Call the function with request
+                if callable(can_manage_permissions_func):
+                    return bool(can_manage_permissions_func(request))
+                else:
+                    # If it's a string path, import and call it
+                    from django.utils.module_loading import import_string
+                    func = import_string(can_manage_permissions_func)
+                    return bool(func(request))
+            except Exception:
+                # If function fails, fall back to superuser check
+                return request.user.is_superuser
+        
+        # Default: superuser only
+        return request.user.is_superuser
 
 
 class UserPermissionManagementViewSet(viewsets.ViewSet):
     """
-    API for managing user permissions (Admin only).
+    API for managing user permissions.
+    
+    Access control is configurable via UPR_CONFIG['can_manage_permissions'].
+    Defaults to superuser only if not configured.
     
     Endpoints:
     - GET /api/permissions/users/{user_id}/ - Get all permissions for a user
@@ -18,10 +78,10 @@ class UserPermissionManagementViewSet(viewsets.ViewSet):
     - POST /api/permissions/bulk-assign/ - Bulk assign permissions
     - POST /api/permissions/bulk-revoke/ - Bulk revoke permissions
     """
-    permission_classes = [IsAdminUser]
+    permission_classes = [ConfigurablePermissionManagementPermission]
 
     @action(detail=False, methods=['get'], url_path='users/(?P<user_id>[^/.]+)')
-    def user_permissions(self, request, user_id=None):
+    def user_permissions(self, request, user_id=None, *args, **kwargs):
         """
         Get all permissions for a specific user.
         
@@ -67,7 +127,7 @@ class UserPermissionManagementViewSet(viewsets.ViewSet):
         })
 
     @action(detail=False, methods=['post'], url_path='users/(?P<user_id>[^/.]+)/assign')
-    def assign_permission(self, request, user_id=None):
+    def assign_permission(self, request, user_id=None, *args, **kwargs):
         """
         Assign a permission to a user.
         
@@ -93,7 +153,7 @@ class UserPermissionManagementViewSet(viewsets.ViewSet):
                 {'error': f'User with id {user_id} not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError):
             return Response(
                 {'error': f'Invalid user ID format: {user_id}'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -134,7 +194,7 @@ class UserPermissionManagementViewSet(viewsets.ViewSet):
         }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'], url_path='users/(?P<user_id>[^/.]+)/revoke')
-    def revoke_permission(self, request, user_id=None):
+    def revoke_permission(self, request, user_id=None, *args, **kwargs):
         """
         Revoke a permission from a user.
         
@@ -191,7 +251,7 @@ class UserPermissionManagementViewSet(viewsets.ViewSet):
             )
 
     @action(detail=False, methods=['post'], url_path='bulk-assign')
-    def bulk_assign(self, request):
+    def bulk_assign(self, request, *args, **kwargs):
         """
         Bulk assign permissions to one or more users.
         
@@ -284,7 +344,7 @@ class UserPermissionManagementViewSet(viewsets.ViewSet):
         }, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['post'], url_path='bulk-revoke')
-    def bulk_revoke(self, request):
+    def bulk_revoke(self, request, *args, **kwargs):
         """
         Bulk revoke permissions from one or more users.
         
