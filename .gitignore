@@ -52,3 +52,5 @@ db.sqlite3-journal
 # Distribution
 dist/
 *.tar.gz
+
+*.sh
