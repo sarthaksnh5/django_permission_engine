@@ -508,6 +508,48 @@ class UserViewSet(viewsets.ModelViewSet):
     serializer_class = UserSerializer
 ```
 
+#### Understanding Opt-In Permissions
+
+**Important**: Django Permission Engine uses an **opt-in permission model**:
+
+- ✅ **Actions defined in UPR config** → Require permission check
+- ✅ **Actions NOT defined in UPR config** → Allowed (no permission check)
+- ✅ **ViewSet without module** → Allowed (skip permission checking)
+
+**Example**:
+
+```python
+# UPR Config
+@module('users', label='User Management')
+class UsersModule:
+    crud = ['view', 'create', 'update', 'delete']
+    actions = ['reset_password']  # 'export_data' is NOT defined
+
+# ViewSet
+class UserViewSet(viewsets.ModelViewSet):
+    permission_classes = [PermissionRequired]
+    module = 'users'
+    
+    @action(detail=False, methods=['get'])
+    def export_data(self, request):
+        # This action is NOT in UPR config
+        # Result: ALLOWED (no permission required)
+        return Response({'data': ...})
+    
+    @action(detail=True, methods=['post'])
+    def reset_password(self, request, pk=None):
+        # This action IS in UPR config
+        # Result: Requires 'users.reset_password' permission
+        return Response({'status': 'password reset'})
+```
+
+This allows you to:
+- Gradually adopt permission checking
+- Have some actions that are always allowed
+- Avoid defining permissions for every single action
+
+**See [Opt-In Permissions Documentation](docs/opt-in-permissions.md) for complete details.**
+
 **Automatic Permission Mapping:**
 - `GET /api/users/` → requires `users.view`
 - `GET /api/users/1/` → requires `users.view`

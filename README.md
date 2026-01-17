@@ -14,6 +14,7 @@ Django Permission Engine provides a single-source, action-aware, declarative per
 - 📊 **Frontend-Ready** - Permission catalog API for frontend consumption
 - 🚫 **Drift Prevention** - Startup validation ensures code and database never drift
 - ⚡ **Performance** - O(1) permission checks with optional caching
+- ✅ **Opt-In Model** - Only actions defined in UPR config require permissions; others are allowed
 
 ## Installation
 
@@ -113,6 +114,7 @@ Full documentation is available in the `docs/` folder:
 - [Core Concepts](docs/core-concepts.md)
 - [Permission Definition](docs/permission-definition.md)
 - [DRF Integration](docs/drf-integration.md)
+- [Opt-In Permissions](docs/opt-in-permissions.md) - Understanding the opt-in permission model
 - [API Reference](docs/catalog-api.md)
 
 ## Requirements

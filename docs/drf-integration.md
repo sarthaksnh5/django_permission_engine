@@ -277,15 +277,52 @@ class UserViewSet(viewsets.ModelViewSet):
         ...
 ```
 
+## Opt-In Permission Model
+
+Django Permission Engine uses an **opt-in permission model**:
+
+- **Actions defined in UPR config** → Require permission check
+- **Actions NOT defined in UPR config** → Allowed (no permission check)
+- **ViewSet without module** → Allowed (skip permission checking)
+
+### Example: Mixed Protected and Unprotected Actions
+
+```python
+# UPR Config
+@module('users', label='User Management')
+class UsersModule:
+    crud = ['view', 'create', 'update', 'delete']
+    actions = ['reset_password']  # 'export_data' is NOT defined
+
+# ViewSet
+class UserViewSet(viewsets.ModelViewSet):
+    permission_classes = [PermissionRequired]
+    module = 'users'
+    
+    @action(detail=False, methods=['get'])
+    def export_data(self, request):
+        # This action is NOT in UPR config
+        # Result: ALLOWED (no permission required)
+        return Response({'data': ...})
+    
+    @action(detail=True, methods=['post'])
+    def reset_password(self, request, pk=None):
+        # This action IS in UPR config
+        # Result: Requires 'users.reset_password' permission
+        return Response({'status': 'password reset'})
+```
+
+**See [Opt-In Permissions Documentation](opt-in-permissions.md) for complete details.**
+
 ## Action Naming Conventions
 
 ### Matching Permission Names
 
-Action names must match permission capability names:
+When an action IS defined in the UPR config, action names must match permission capability names:
 
 ```python
 # ✅ Good: Action matches permission
-@registry.module('users')
+@module('users')
 class UsersModule:
     actions = ['reset_password']
 
@@ -294,15 +331,16 @@ def reset_password(self, request, pk=None):
     # Matches 'users.reset_password'
     ...
 
-# ❌ Bad: Mismatched names
-@registry.module('users')
+# ⚠️ Note: If action is NOT in UPR config, it will be allowed regardless of name
+@module('users')
 class UsersModule:
-    actions = ['reset_password']
+    actions = []  # 'export_data' not defined
 
-@action(detail=True, methods=['post'], name='reset-password')
-def reset_password(self, request, pk=None):
-    # Action name is 'reset-password' but permission is 'users.reset_password'
-    # This will fail!
+@action(detail=False, methods=['get'], name='export-data')
+def export_data(self, request):
+    # Action name is 'export-data' but permission is not defined
+    # Result: ALLOWED (opt-in model)
+    ...
 ```
 
 ### Naming Best Practices

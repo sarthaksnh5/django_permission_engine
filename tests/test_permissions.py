@@ -231,3 +231,166 @@ class TestPermissionRequired:
         perm_class = PermissionRequired()
         result = perm_class.has_object_permission(MockRequest(), MockViewSet(), None)
         assert result is True
+
+
+@pytest.mark.django_db
+class TestOptInPermissionModel:
+    """Test opt-in permission model behavior"""
+
+    def test_action_not_in_registry_allowed(self):
+        """Test that actions not in UPR registry are allowed"""
+        from django_permission_engine import get_registry
+        
+        # Create user with no permissions
+        user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        
+        # Create a module with only some permissions
+        registry = get_registry()
+        registry.register_module(
+            'users',
+            crud=['view', 'create'],
+            actions=['reset_password']
+        )
+        # Note: 'export_data' action is NOT registered
+        
+        class MockViewSet:
+            module = 'users'
+        
+        resolver = PermissionResolver()
+        
+        # Test action not in registry (export_data)
+        result = resolver.resolve(user, MockViewSet(), 'export_data', 'GET')
+        assert result is True  # Should be allowed (opt-in model)
+        
+        # Test CRUD action not in crud list (delete/destroy)
+        result = resolver.resolve(user, MockViewSet(), 'destroy', 'DELETE')
+        assert result is True  # Should be allowed (delete not in crud list)
+
+    def test_action_in_registry_requires_permission(self):
+        """Test that actions in UPR registry require permission"""
+        from django_permission_engine import get_registry
+        
+        # Create user with no permissions
+        user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        
+        # Register module with permissions
+        registry = get_registry()
+        registry.register_module(
+            'users',
+            crud=['view', 'create'],
+            actions=['reset_password']
+        )
+        registry.sync()  # Sync to database
+        
+        class MockViewSet:
+            module = 'users'
+        
+        resolver = PermissionResolver()
+        
+        # Test action in registry but user has no permission
+        result = resolver.resolve(user, MockViewSet(), 'list', 'GET')
+        assert result is False  # Should be denied (no permission)
+        
+        # Test custom action in registry but user has no permission
+        result = resolver.resolve(user, MockViewSet(), 'reset_password', 'POST')
+        assert result is False  # Should be denied (no permission)
+
+    def test_action_in_registry_with_permission_granted(self):
+        """Test that actions in registry are allowed when user has permission"""
+        from django_permission_engine import get_registry
+        
+        # Register module
+        registry = get_registry()
+        registry.register_module(
+            'users',
+            crud=['view', 'create'],
+            actions=['reset_password']
+        )
+        registry.sync()
+        
+        # Create permission
+        permission = Permission.objects.get(key='users.view')
+        
+        # Create user with permission
+        user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        UserPermission.objects.create(user=user, permission=permission)
+        
+        class MockViewSet:
+            module = 'users'
+        
+        resolver = PermissionResolver()
+        
+        # Test action in registry with permission
+        result = resolver.resolve(user, MockViewSet(), 'list', 'GET')
+        assert result is True  # Should be allowed (has permission)
+
+    def test_crud_action_not_in_crud_list_allowed(self):
+        """Test that CRUD actions not in crud list are allowed"""
+        from django_permission_engine import get_registry
+        
+        # Create user with no permissions
+        user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        
+        # Register module with only view and create (no update, delete)
+        registry = get_registry()
+        registry.register_module(
+            'users',
+            crud=['view', 'create']  # update and delete NOT in list
+        )
+        
+        class MockViewSet:
+            module = 'users'
+        
+        resolver = PermissionResolver()
+        
+        # Test update action (not in crud list)
+        result = resolver.resolve(user, MockViewSet(), 'update', 'PUT')
+        assert result is True  # Should be allowed (not in registry)
+        
+        # Test delete action (not in crud list)
+        result = resolver.resolve(user, MockViewSet(), 'destroy', 'DELETE')
+        assert result is True  # Should be allowed (not in registry)
+
+    def test_permission_exists_in_registry(self):
+        """Test permission_exists_in_registry method"""
+        from django_permission_engine import get_registry
+        
+        registry = get_registry()
+        registry.register_module(
+            'users',
+            crud=['view', 'create'],
+            actions=['reset_password']
+        )
+        registry.sync()
+        
+        resolver = PermissionResolver()
+        
+        # Test permissions that exist
+        assert resolver.permission_exists_in_registry('users.view') is True
+        assert resolver.permission_exists_in_registry('users.create') is True
+        assert resolver.permission_exists_in_registry('users.reset_password') is True
+        
+        # Test permissions that don't exist
+        assert resolver.permission_exists_in_registry('users.export_data') is False
+        assert resolver.permission_exists_in_registry('users.update') is False
+        assert resolver.permission_exists_in_registry('users.delete') is False
+        assert resolver.permission_exists_in_registry('orders.view') is False
+
+    def test_no_module_allows_all(self):
+        """Test that ViewSet without module allows all actions"""
+        user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        
+        class MockViewSet:
+            pass  # No module
+        
+        resolver = PermissionResolver()
+        
+        # All actions should be allowed when no module
+        result = resolver.resolve(user, MockViewSet(), 'list', 'GET')
+        assert result is True
+        
+        result = resolver.resolve(user, MockViewSet(), 'create', 'POST')
+        assert result is True
+        
+        result = resolver.resolve(user, MockViewSet(), 'custom_action', 'POST')
+        assert result is True

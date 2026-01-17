@@ -35,12 +35,16 @@ Allow/Deny decision
 1. **Request arrives** at DRF endpoint
 2. **ViewSet identified** from URL routing
 3. **Module extracted** from ViewSet configuration
+   - No module → Allow (skip permission checking)
 4. **Action identified** from DRF action or HTTP method
 5. **Action normalized** (CRUD or custom)
 6. **Permission key constructed** (`<module>.<capability>`)
-7. **User permissions loaded** (cached)
-8. **Permission key checked** in user's permission set
-9. **Decision returned** (allow or deny)
+7. **Check if permission exists in registry**
+   - Not in registry → Allow (opt-in model)
+   - In registry → Continue
+8. **User permissions loaded** (cached)
+9. **Permission key checked** in user's permission set
+10. **Decision returned** (allow or deny)
 
 ## Inputs
 
@@ -133,14 +137,30 @@ def construct_permission_key(module, capability):
 # module='users', capability='reset_password' → 'users.reset_password'
 ```
 
-### Step 5: Check User Permissions
+### Step 5: Check if Permission Exists in Registry
+
+```python
+def permission_exists_in_registry(permission_key):
+    """Check if permission is defined in UPR registry"""
+    from django_permission_engine import get_registry
+    registry = get_registry()
+    return permission_key in registry.get_all_permission_keys()
+```
+
+**Important**: If the permission doesn't exist in the registry, the action is allowed (opt-in model).
+
+### Step 6: Check User Permissions
 
 ```python
 def check_permission(user, permission_key):
+    # First check if permission exists in registry
+    if not permission_exists_in_registry(permission_key):
+        return True  # Not in registry = allow (opt-in model)
+    
     # Get user's permissions (cached)
     user_permissions = get_user_permissions(user)
     
-    # Check if permission key exists
+    # Check if permission key exists in user's permissions
     return permission_key in user_permissions
 ```
 
@@ -154,7 +174,7 @@ class PermissionResolver:
         # Step 1: Get module
         module = self.get_module(viewset)
         if not module:
-            return False  # Deny if no module
+            return True  # No module = allow (skip permission checking)
         
         # Step 2: Normalize action
         capability = self.normalize_action(action, http_method)
@@ -162,8 +182,18 @@ class PermissionResolver:
         # Step 3: Construct key
         permission_key = self.construct_permission_key(module, capability)
         
-        # Step 4: Check permission
+        # Step 4: Check if permission exists in registry
+        if not self.permission_exists_in_registry(permission_key):
+            return True  # Not in registry = allow (opt-in model)
+        
+        # Step 5: Check permission
         return self.check_permission(user, permission_key)
+    
+    def permission_exists_in_registry(self, permission_key: str) -> bool:
+        """Check if permission exists in UPR registry"""
+        from django_permission_engine import get_registry
+        registry = get_registry()
+        return permission_key in registry.get_all_permission_keys()
     
     def get_module(self, viewset):
         return getattr(viewset, 'module', None)
@@ -183,6 +213,7 @@ class PermissionResolver:
         return f"{module}.{capability}"
     
     def check_permission(self, user, permission_key):
+        """Check if user has permission (assumes permission exists in registry)"""
         user_permissions = self.get_user_permissions(user)
         return permission_key in user_permissions
     
@@ -314,9 +345,11 @@ def get_user_permissions(user):
 def resolve(self, user, viewset, action, http_method):
     module = self.get_module(viewset)
     if not module:
-        logger.warning(f"ViewSet {viewset.__class__.__name__} has no module")
-        return False  # Deny by default
+        # No module = allow (skip permission checking)
+        return True
 ```
+
+**Note**: ViewSets without a module are allowed to provide flexibility. If you want to enforce module declaration, you can override this behavior.
 
 ### Invalid Permission Key
 
@@ -412,9 +445,10 @@ def test_viewset_permission_enforcement():
 class UserViewSet(viewsets.ModelViewSet):
     module = 'users'
 
-# ❌ Bad
+# ⚠️ Note: No module = allow all (skip permission checking)
+# This is intentional for flexibility, but it's better to declare modules
 class UserViewSet(viewsets.ModelViewSet):
-    # No module = deny all
+    # No module = allow all (not recommended for production)
 ```
 
 ### 2. Use Consistent Action Names

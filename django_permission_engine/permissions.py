@@ -75,6 +75,10 @@ class PermissionResolver:
         # Construct permission key
         permission_key = self.construct_permission_key(module, capability)
 
+        # Check if permission exists in registry (opt-in model)
+        if not self.permission_exists_in_registry(permission_key):
+            return True  # Not in registry = allow (opt-in model)
+
         # Check permission
         return self.check_permission(user, permission_key)
 
@@ -108,6 +112,29 @@ class PermissionResolver:
         """Construct permission key from module and capability"""
         return f"{module}.{capability}"
 
+    def permission_exists_in_registry(self, permission_key: str) -> bool:
+        """
+        Check if permission exists in UPR registry.
+        
+        This implements the opt-in permission model:
+        - If permission is not in registry, it's allowed (no check needed)
+        - If permission is in registry, it requires user to have that permission
+        
+        Args:
+            permission_key: Permission key to check (e.g., 'users.view')
+            
+        Returns:
+            True if permission exists in registry, False otherwise
+        """
+        try:
+            from django_permission_engine import get_registry
+            registry = get_registry()
+            return permission_key in registry.get_all_permission_keys()
+        except Exception:
+            # If registry is not available, assume permission doesn't exist
+            # This allows the action (opt-in model)
+            return False
+
     def check_permission(self, user, permission_key: str) -> bool:
         """
         Check if user has permission.
@@ -118,6 +145,11 @@ class PermissionResolver:
 
         Returns:
             True if user has permission, False otherwise
+            
+        Note:
+            This method assumes the permission exists in the registry.
+            Use permission_exists_in_registry() first to check if permission
+            should be enforced (opt-in model).
         """
         # Validate permission key format
         if not self.is_valid_permission_key(permission_key):
