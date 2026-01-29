@@ -1,7 +1,9 @@
 """
 Permission Catalog API views
 """
-from typing import Dict, List
+import copy
+from typing import Dict, List, Optional, Set
+
 from django.core.cache import cache
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -24,8 +26,54 @@ class PermissionCatalogViewSet(viewsets.ViewSet):
     - type: Filter by type ('crud' or 'action')
     - active_only: Return only active permissions (true/false)
     - search: Search in keys, labels, descriptions
+    - allowed_keys: Comma-separated permission keys; catalog returns only these
+      (overrides get_allowed_permission_keys() when present)
     """
     permission_classes = [IsAuthenticated]  # Or IsAdminUser for stricter access
+
+    def get_allowed_permission_keys(self, request) -> Optional[Set[str]]:
+        """
+        Return the set of permission keys the current user is allowed to see in the catalog.
+
+        Override this in a subclass to restrict the catalog (e.g. to permissions
+        assigned to the current user, so they can only assign those to their reports).
+        Base implementation returns None (no restriction; full catalog).
+
+        Returns:
+            None: No filter; catalog shows all permissions.
+            set of str: Only these permission keys are included (per module).
+        """
+        return None
+
+    def _resolve_allowed_keys(self, request) -> Optional[Set[str]]:
+        """Resolve allowed_keys from query param or get_allowed_permission_keys(request)."""
+        raw = request.query_params.get('allowed_keys')
+        if raw is not None:
+            keys = {k.strip() for k in raw.split(',') if k.strip()}
+            return keys
+        return self.get_allowed_permission_keys(request)
+
+    def _apply_allowed_keys_to_module(self, module_dict: Dict, allowed_keys: Set[str]) -> None:
+        """Filter a module (and its submodules) to only permissions in allowed_keys."""
+        module_dict['permissions'] = [
+            p for p in module_dict.get('permissions', [])
+            if p.get('key') in allowed_keys
+        ]
+        for sub in module_dict.get('submodules', []):
+            self._apply_allowed_keys_to_module(sub, allowed_keys)
+        module_dict['submodules'] = [
+            sm for sm in module_dict.get('submodules', [])
+            if sm.get('permissions') or sm.get('submodules')
+        ]
+
+    def _apply_allowed_keys_to_catalog(self, catalog: Dict, allowed_keys: Set[str]) -> None:
+        """Filter catalog so each module only contains permissions in allowed_keys."""
+        for module in catalog.get('modules', []):
+            self._apply_allowed_keys_to_module(module, allowed_keys)
+        catalog['modules'] = [
+            m for m in catalog['modules']
+            if m.get('permissions') or m.get('submodules')
+        ]
 
     @action(detail=False, methods=['get'])
     def catalog(self, request, *args, **kwargs):
@@ -39,9 +87,10 @@ class PermissionCatalogViewSet(viewsets.ViewSet):
         type_filter = request.query_params.get('type')  # 'crud' or 'action'
         active_only = request.query_params.get('active_only', 'false').lower() == 'true'
         search = request.query_params.get('search')
+        allowed_keys = self._resolve_allowed_keys(request)
 
-        # Build catalog
-        catalog = self._build_catalog()
+        # Build catalog and copy so we don't mutate cache
+        catalog = copy.deepcopy(self._build_catalog())
 
         # Apply filters
         if module_filter:
@@ -75,13 +124,15 @@ class PermissionCatalogViewSet(viewsets.ViewSet):
                         search_lower in (p.get('description', '') or '').lower()
                     )
                 ]
-            # Remove modules with no matching permissions
             catalog['modules'] = [
                 m for m in catalog['modules']
                 if m['permissions'] or any(
                     sm['permissions'] for sm in m.get('submodules', [])
                 )
             ]
+
+        if allowed_keys is not None:
+            self._apply_allowed_keys_to_catalog(catalog, allowed_keys)
 
         return Response(catalog)
 
@@ -99,6 +150,15 @@ class PermissionCatalogViewSet(viewsets.ViewSet):
                 {'error': f'Module not found: {module}'},
                 status=404
             )
+        allowed_keys = self._resolve_allowed_keys(request)
+        if allowed_keys is not None:
+            module_data = copy.deepcopy(module_data)
+            self._apply_allowed_keys_to_module(module_data, allowed_keys)
+            if not module_data.get('permissions') and not module_data.get('submodules'):
+                return Response(
+                    {'error': f'Module not found: {module}'},
+                    status=404
+                )
         return Response(module_data)
 
     def _build_catalog(self) -> Dict:

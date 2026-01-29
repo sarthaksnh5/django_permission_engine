@@ -973,7 +973,34 @@ GET /api/permissions/catalog/?active_only=true
 
 # Search
 GET /api/permissions/catalog/?search=password
+
+# Only specific permission keys (e.g. for assignable subset)
+GET /api/permissions/catalog/?allowed_keys=complaint.view,complaint.create,complaint.delegate
 ```
+
+#### Restrict catalog by allowed keys (subclass)
+
+When a manager should only see permissions they themselves have (e.g. to assign to their reports), subclass `PermissionCatalogViewSet` and override `get_allowed_permission_keys(request)`:
+
+```python
+from django_permission_engine.views import PermissionCatalogViewSet
+from django_permission_engine.helpers import UPRHelper
+
+class MyPermissionCatalogViewSet(PermissionCatalogViewSet):
+    def get_allowed_permission_keys(self, request):
+        # Example: department admin sees full catalog; others see only their assigned keys
+        if getattr(request.user, 'department_user', None) and request.user.department_user.is_admin:
+            return None  # no restriction
+        # Only permissions assigned to this user
+        keys = set(
+            request.user.upr_permissions.values_list('permission__key', flat=True)
+        )
+        return keys if keys else None
+```
+
+- Return `None` for no restriction (full catalog).
+- Return a `set` of permission keys to restrict the catalog to only those keys per module.
+- Query param `allowed_keys` (comma-separated) overrides this when present.
 
 ### Management Commands
 

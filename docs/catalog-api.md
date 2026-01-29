@@ -311,6 +311,28 @@ GET /api/permissions/catalog/?search=password
 
 Searches in permission keys, labels, and descriptions.
 
+### Filter by allowed keys
+
+```
+GET /api/permissions/catalog/?allowed_keys=complaint.view,complaint.create,complaint.delegate
+```
+
+Returns only the listed permission keys (still grouped by module). Use this when the caller should only see a subset of permissions (e.g. those they can assign to others).
+
+**Subclassing**: Override `get_allowed_permission_keys(request)` on `PermissionCatalogViewSet` to restrict the catalog by current user (e.g. only permissions assigned to the manager). Return `None` for no restriction; return a `set` of permission keys to restrict. The query param `allowed_keys` overrides this when present.
+
+```python
+from django_permission_engine.views import PermissionCatalogViewSet
+
+class MyPermissionCatalogViewSet(PermissionCatalogViewSet):
+    def get_allowed_permission_keys(self, request):
+        if request.user.is_superuser:
+            return None
+        return set(
+            request.user.upr_permissions.values_list('permission__key', flat=True)
+        )
+```
+
 ## Caching
 
 ### Response Caching
