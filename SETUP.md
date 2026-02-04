@@ -9,7 +9,8 @@ This guide explains how to set up and use Django Permission Engine in your Djang
 3. [Basic Implementation Steps](#basic-implementation-steps)
 4. [Complete Usage Guide](#complete-usage-guide)
 5. [Managing User Permissions](#managing-user-permissions)
-6. [Testing the Implementation](#testing-the-implementation)
+6. [User Groups and UPRHelper](#user-groups-and-uprhelper)
+7. [Testing the Implementation](#testing-the-implementation)
 
 ---
 
@@ -1001,6 +1002,49 @@ class MyPermissionCatalogViewSet(PermissionCatalogViewSet):
 - Return `None` for no restriction (full catalog).
 - Return a `set` of permission keys to restrict the catalog to only those keys per module.
 - Query param `allowed_keys` (comma-separated) overrides this when present.
+
+## User Groups and UPRHelper
+
+Permission groups let you assign a set of permissions to a **group**, then assign users to that group. Users get those permissions in addition to any **direct** permissions. See [User Groups](docs/user-groups.md) for full details.
+
+### UPRHelper: groups and permission keys
+
+Use `UPRHelper(user)` to get groups and permission keys separately:
+
+```python
+from django_permission_engine import UPRHelper
+
+helper = UPRHelper(request.user)
+
+# User's groups (queryset of memberships)
+helper.get_user_groups()
+
+# Serialized groups (id, name, slug, description, joined_at, granted_by)
+helper.serialize_user_groups()
+
+# Permission keys: direct only, from groups only, or effective (direct + groups)
+helper.get_direct_permission_keys()       # set of str
+helper.get_permission_keys_from_groups()  # set of str
+helper.get_effective_permission_keys()    # set of str (cached)
+
+# Serialize effective permissions with source ('direct' or 'group:<slug>')
+helper.serialize_effective_permissions(include_source=True)
+```
+
+### Group and user-group APIs
+
+- **GET/POST** `/api/permissions/groups/` – List, create groups
+- **GET/PUT/PATCH/DELETE** `/api/permissions/groups/{id}/` – Group detail
+- **GET** `/api/permissions/groups/{id}/permissions/` – Group's permissions
+- **POST** `/api/permissions/groups/{id}/assign/` – Assign permission to group (body: `permission_key`)
+- **POST** `/api/permissions/groups/{id}/revoke/` – Revoke permission from group
+- **GET** `/api/permissions/users/{user_id}/groups/` – User's groups
+- **POST** `/api/permissions/users/{user_id}/groups/assign/` – Assign group to user (body: `group_id` or `group_slug`)
+- **POST** `/api/permissions/users/{user_id}/groups/revoke/` – Revoke group from user
+
+### User permissions with effective source
+
+- **GET** `/api/permissions/users/{user_id}/?effective=1` – Adds `effective_permissions` (each item has `source`: `direct` or `group:<slug>`) and `effective_total`.
 
 ### Management Commands
 

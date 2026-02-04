@@ -200,19 +200,33 @@ class PermissionResolver:
         """
         Load user permissions from database.
 
-        Uses UserPermission model if available.
+        Union of: direct UserPermission assignments and permissions from
+        all active groups the user belongs to (UserGroupMembership -> GroupPermission).
         """
+        keys = set()
         try:
             from .models import UserPermission
-            return set(
-                UserPermission.objects
-                .filter(user=user, permission__is_active=True)
-                .values_list('permission__key', flat=True)
-            )
+            direct = UserPermission.objects.filter(
+                user=user, permission__is_active=True
+            ).values_list('permission__key', flat=True)
+            keys.update(direct)
         except Exception:
-            # UserPermission model might not exist or error occurred
-            # Applications should provide their own implementation
-            return set()
+            pass
+        try:
+            from .models import UserGroupMembership, GroupPermission
+            # Permissions from user's active groups
+            group_ids = UserGroupMembership.objects.filter(
+                user=user, group__is_active=True
+            ).values_list('group_id', flat=True)
+            if group_ids:
+                group_keys = GroupPermission.objects.filter(
+                    group_id__in=group_ids,
+                    permission__is_active=True
+                ).values_list('permission__key', flat=True)
+                keys.update(group_keys)
+        except Exception:
+            pass
+        return keys
 
 
 class PermissionRequired(_get_base_permission_class()):

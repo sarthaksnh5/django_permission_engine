@@ -119,11 +119,145 @@ class UserPermissionManagementViewSet(viewsets.ViewSet):
             for up in user_permissions
         ]
 
-        return Response({
+        response_data = {
             'user_id': user.id,
             'username': getattr(user, 'username', str(user)),
             'permissions': permissions_data,
             'total': len(permissions_data),
+        }
+        # Optional: include effective permissions (direct + from groups) with source
+        if request.query_params.get('effective', '0') == '1':
+            from .helpers import UPRHelper
+            response_data['effective_permissions'] = UPRHelper(user).serialize_effective_permissions(include_source=True)
+            response_data['effective_total'] = len(response_data['effective_permissions'])
+        return Response(response_data)
+
+    @action(detail=False, methods=['get'], url_path='users/(?P<user_id>[^/.]+)/groups')
+    def user_groups(self, request, user_id=None, *args, **kwargs):
+        """
+        Get groups assigned to a user.
+        GET /api/permissions/users/{user_id}/groups/
+        """
+        from django.contrib.auth import get_user_model
+        from .helpers import UPRHelper
+        User = get_user_model()
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {'error': f'User with id {user_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except (ValueError, TypeError):
+            return Response(
+                {'error': f'Invalid user ID format: {user_id}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        groups_data = UPRHelper(user).serialize_user_groups()
+        return Response({
+            'user_id': user.id,
+            'username': getattr(user, 'username', str(user)),
+            'groups': groups_data,
+            'total': len(groups_data),
+        })
+
+    @action(detail=False, methods=['post'], url_path='users/(?P<user_id>[^/.]+)/groups/assign')
+    def assign_group(self, request, user_id=None, *args, **kwargs):
+        """
+        Assign a group to a user. Body: {"group_id": 1} or {"group_slug": "editors"}
+        POST /api/permissions/users/{user_id}/groups/assign/
+        """
+        from django.contrib.auth import get_user_model
+        from .models import PermissionGroup, UserGroupMembership
+        User = get_user_model()
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {'error': f'User with id {user_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except (ValueError, TypeError):
+            return Response(
+                {'error': f'Invalid user ID format: {user_id}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        group_id = request.data.get('group_id')
+        group_slug = request.data.get('group_slug')
+        if group_id is None and not group_slug:
+            return Response(
+                {'error': 'group_id or group_slug is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            if group_id is not None:
+                group = PermissionGroup.objects.get(pk=group_id, is_active=True)
+            else:
+                group = PermissionGroup.objects.get(slug=group_slug, is_active=True)
+        except PermissionGroup.DoesNotExist:
+            return Response(
+                {'error': 'Group not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        membership, created = UserGroupMembership.objects.get_or_create(
+            user=user,
+            group=group,
+            defaults={'granted_by': request.user}
+        )
+        if not created and membership.granted_by != request.user:
+            membership.granted_by = request.user
+            membership.save(update_fields=['granted_by'])
+        return Response({
+            'message': 'Group assigned to user successfully',
+            'user_id': user.id,
+            'group_id': group.id,
+            'group_slug': group.slug,
+            'created': created,
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='users/(?P<user_id>[^/.]+)/groups/revoke')
+    def revoke_group(self, request, user_id=None, *args, **kwargs):
+        """
+        Revoke a group from a user. Body: {"group_id": 1} or {"group_slug": "editors"}
+        POST /api/permissions/users/{user_id}/groups/revoke/
+        """
+        from django.contrib.auth import get_user_model
+        from .models import PermissionGroup, UserGroupMembership
+        User = get_user_model()
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {'error': f'User with id {user_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        group_id = request.data.get('group_id')
+        group_slug = request.data.get('group_slug')
+        if group_id is None and not group_slug:
+            return Response(
+                {'error': 'group_id or group_slug is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            if group_id is not None:
+                group = PermissionGroup.objects.get(pk=group_id)
+            else:
+                group = PermissionGroup.objects.get(slug=group_slug)
+        except PermissionGroup.DoesNotExist:
+            return Response(
+                {'error': 'Group not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        deleted, _ = UserGroupMembership.objects.filter(user=user, group=group).delete()
+        if not deleted:
+            return Response(
+                {'error': 'User is not in this group'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        return Response({
+            'message': 'Group revoked from user successfully',
+            'user_id': user.id,
+            'group_id': group.id,
         })
 
     @action(detail=False, methods=['post'], url_path='users/(?P<user_id>[^/.]+)/assign')

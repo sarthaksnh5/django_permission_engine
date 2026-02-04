@@ -66,9 +66,12 @@ def can_manage_permissions(request) -> bool:
 
 ### 1. Get User Permissions
 
-Get all permissions assigned to a specific user.
+Get all permissions assigned to a specific user (direct assignments only by default).
 
 **Endpoint:** `GET /api/permissions/users/{user_id}/`
+
+**Query parameters:**
+- `effective=1` – Include effective permissions (direct + from groups) with `source` per permission (`direct` or `group:<slug>`). Adds `effective_permissions` and `effective_total` to the response.
 
 **Authentication:** Configurable (default: superuser only)
 
@@ -278,6 +281,53 @@ curl -X POST \
 - `200 OK` - Permissions revoked successfully
 - `400 Bad Request` - Missing permission_keys or user_ids
 - `404 Not Found` - Some users or permissions not found
+
+---
+
+### 6. User-Group Membership
+
+#### Get User's Groups
+
+**Endpoint:** `GET /api/permissions/users/{user_id}/groups/`
+
+**Response:** `user_id`, `username`, `groups` (list of `id`, `name`, `slug`, `description`, `joined_at`, `granted_by`), `total`.
+
+#### Assign Group to User
+
+**Endpoint:** `POST /api/permissions/users/{user_id}/groups/assign/`
+
+**Request Body:** `{"group_id": 1}` or `{"group_slug": "editors"}`
+
+#### Revoke Group from User
+
+**Endpoint:** `POST /api/permissions/users/{user_id}/groups/revoke/`
+
+**Request Body:** `{"group_id": 1}` or `{"group_slug": "editors"}`
+
+---
+
+### 7. Group Management
+
+Same access control as above (`UPR_CONFIG['can_manage_permissions']`).
+
+#### List / Create Groups
+
+- **GET** `/api/permissions/groups/` – List groups (query: `active_only=true|false`)
+- **POST** `/api/permissions/groups/` – Create group (body: `name`, optional `slug`, `description`, `is_active`)
+
+#### Group Detail
+
+- **GET** `/api/permissions/groups/{group_id}/` – Get group
+- **PUT/PATCH** `/api/permissions/groups/{group_id}/` – Update group
+- **DELETE** `/api/permissions/groups/{group_id}/` – Delete group
+
+#### Group Permissions
+
+- **GET** `/api/permissions/groups/{group_id}/permissions/` – List permissions assigned to the group
+- **POST** `/api/permissions/groups/{group_id}/assign/` – Assign permission to group (body: `permission_key`)
+- **POST** `/api/permissions/groups/{group_id}/revoke/` – Revoke permission from group (body: `permission_key`)
+
+See [User Groups](user-groups.md) for UPRHelper (get_user_groups, direct/group/effective permission keys) and full usage.
 
 ---
 

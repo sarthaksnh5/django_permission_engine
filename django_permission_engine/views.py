@@ -271,3 +271,14 @@ class PermissionCatalogViewSet(viewsets.ViewSet):
             return None
 
         return self._serialize_module(module_key)
+
+
+# Re-export all ViewSets so: from django_permission_engine.views import *
+from .permission_management import UserPermissionManagementViewSet
+from .group_management import GroupManagementViewSet
+
+__all__ = [
+    'PermissionCatalogViewSet',
+    'UserPermissionManagementViewSet',
+    'GroupManagementViewSet',
+]

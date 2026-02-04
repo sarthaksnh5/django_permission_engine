@@ -270,6 +270,118 @@ class UserPermission(models.Model):
         return f"{username} - {self.permission.key}"
 
 
+class PermissionGroup(models.Model):
+    """
+    Named group that holds a set of permissions.
+
+    Users can be assigned to groups; they receive all permissions
+    assigned to their groups in addition to any direct UserPermission.
+    Distinct from Django's auth.Group (table: upr_permission_groups).
+    """
+    name = models.CharField(
+        max_length=255,
+        help_text="Human-readable group name",
+    )
+    slug = models.SlugField(
+        max_length=100,
+        unique=True,
+        db_index=True,
+        blank=True,
+        null=True,
+        help_text="Optional stable identifier (e.g. 'editors', 'viewers')",
+    )
+    description = models.TextField(
+        blank=True,
+        help_text="Group description",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Inactive groups do not grant permissions",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "upr_permission_groups"
+        verbose_name = "Permission Group"
+        verbose_name_plural = "Permission Groups"
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name or (self.slug or str(self.pk))
+
+
+class GroupPermission(models.Model):
+    """
+    Assigns a permission to a group.
+
+    Users in the group receive this permission (when group and permission are active).
+    """
+    group = models.ForeignKey(
+        PermissionGroup,
+        on_delete=models.CASCADE,
+        related_name="permission_assignments",
+    )
+    permission = models.ForeignKey(
+        Permission,
+        on_delete=models.CASCADE,
+        related_name="group_assignments",
+    )
+    granted_at = models.DateTimeField(auto_now_add=True)
+    granted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="upr_granted_group_permissions",
+    )
+
+    class Meta:
+        db_table = "upr_group_permissions"
+        unique_together = ["group", "permission"]
+        verbose_name = "Group Permission"
+        verbose_name_plural = "Group Permissions"
+
+    def __str__(self):
+        return f"{self.group} - {self.permission.key}"
+
+
+class UserGroupMembership(models.Model):
+    """
+    Assigns a user to a permission group.
+
+    User receives all permissions of the group (when group is active).
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="upr_group_memberships",
+    )
+    group = models.ForeignKey(
+        PermissionGroup,
+        on_delete=models.CASCADE,
+        related_name="members",
+    )
+    joined_at = models.DateTimeField(auto_now_add=True)
+    granted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="upr_granted_group_memberships",
+    )
+
+    class Meta:
+        db_table = "upr_user_group_memberships"
+        unique_together = ["user", "group"]
+        verbose_name = "User Group Membership"
+        verbose_name_plural = "User Group Memberships"
+
+    def __str__(self):
+        username = getattr(self.user, 'username', str(self.user))
+        return f"{username} - {self.group}"
+
+
 # Signal handlers for cache invalidation
 @receiver([post_save, post_delete], sender=UserPermission)
 def invalidate_user_permission_cache(sender, instance, **kwargs):
@@ -282,3 +394,28 @@ def invalidate_user_permission_cache(sender, instance, **kwargs):
 def invalidate_permission_cache(sender, instance, **kwargs):
     """Invalidate permission catalog cache when permissions change"""
     cache.delete('permission_catalog')
+
+
+def _invalidate_cache_for_group_members(group):
+    """Delete user_permissions cache for every user in this group."""
+    user_ids = UserGroupMembership.objects.filter(group=group).values_list('user_id', flat=True)
+    for uid in user_ids:
+        cache.delete(f'user_permissions:{uid}')
+
+
+@receiver([post_save, post_delete], sender=UserGroupMembership)
+def invalidate_user_permission_cache_on_membership(sender, instance, **kwargs):
+    """Invalidate cache when user is added/removed from a group"""
+    cache.delete(f'user_permissions:{instance.user_id}')
+
+
+@receiver([post_save, post_delete], sender=GroupPermission)
+def invalidate_user_permission_cache_on_group_permission(sender, instance, **kwargs):
+    """Invalidate cache for all users in the group when group permissions change"""
+    _invalidate_cache_for_group_members(instance.group)
+
+
+@receiver([post_save, post_delete], sender=PermissionGroup)
+def invalidate_user_permission_cache_on_group_change(sender, instance, **kwargs):
+    """Invalidate cache for all members when group (e.g. is_active) changes"""
+    _invalidate_cache_for_group_members(instance)
