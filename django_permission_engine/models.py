@@ -270,13 +270,30 @@ class UserPermission(models.Model):
         return f"{username} - {self.permission.key}"
 
 
-class PermissionGroup(models.Model):
+def get_group_model():
     """
-    Named group that holds a set of permissions.
+    Return the group model (PermissionGroup or custom via UPR_GROUP_MODEL).
+    Default when UPR_GROUP_MODEL is not set: PermissionGroup.
+    """
+    from django.apps import apps
+    model_label = getattr(settings, 'UPR_GROUP_MODEL', None)
+    if not model_label:
+        return PermissionGroup
+    try:
+        return apps.get_model(model_label, require_ready=True)
+    except (LookupError, ValueError):
+        return PermissionGroup
 
-    Users can be assigned to groups; they receive all permissions
-    assigned to their groups in addition to any direct UserPermission.
-    Distinct from Django's auth.Group (table: upr_permission_groups).
+
+def _get_group_model_string():
+    """Return the group model label for ForeignKey (default: PermissionGroup)."""
+    return getattr(settings, 'UPR_GROUP_MODEL', 'django_permission_engine.PermissionGroup')
+
+
+class AbstractPermissionGroup(models.Model):
+    """
+    Abstract base for permission groups. Subclass this to create a custom group model.
+    Required fields: name, slug (optional), description, is_active, created_at, updated_at.
     """
     name = models.CharField(
         max_length=255,
@@ -302,13 +319,23 @@ class PermissionGroup(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "upr_permission_groups"
-        verbose_name = "Permission Group"
-        verbose_name_plural = "Permission Groups"
+        abstract = True
         ordering = ["name"]
 
     def __str__(self):
         return self.name or (self.slug or str(self.pk))
+
+
+class PermissionGroup(AbstractPermissionGroup):
+    """
+    Default group model. Distinct from Django's auth.Group (table: upr_permission_groups).
+    Override with UPR_GROUP_MODEL to use a custom model (e.g. DepartmentUserGroup).
+    """
+    class Meta:
+        db_table = "upr_permission_groups"
+        verbose_name = "Permission Group"
+        verbose_name_plural = "Permission Groups"
+        ordering = ["name"]
 
 
 class GroupPermission(models.Model):
@@ -316,9 +343,10 @@ class GroupPermission(models.Model):
     Assigns a permission to a group.
 
     Users in the group receive this permission (when group and permission are active).
+    group FK points to the swappable group model (UPR_GROUP_MODEL or PermissionGroup).
     """
     group = models.ForeignKey(
-        PermissionGroup,
+        _get_group_model_string(),
         on_delete=models.CASCADE,
         related_name="permission_assignments",
     )
@@ -351,6 +379,7 @@ class UserGroupMembership(models.Model):
     Assigns a user to a permission group.
 
     User receives all permissions of the group (when group is active).
+    group FK points to the swappable group model (UPR_GROUP_MODEL or PermissionGroup).
     """
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -358,7 +387,7 @@ class UserGroupMembership(models.Model):
         related_name="upr_group_memberships",
     )
     group = models.ForeignKey(
-        PermissionGroup,
+        _get_group_model_string(),
         on_delete=models.CASCADE,
         related_name="members",
     )
@@ -415,7 +444,4 @@ def invalidate_user_permission_cache_on_group_permission(sender, instance, **kwa
     _invalidate_cache_for_group_members(instance.group)
 
 
-@receiver([post_save, post_delete], sender=PermissionGroup)
-def invalidate_user_permission_cache_on_group_change(sender, instance, **kwargs):
-    """Invalidate cache for all members when group (e.g. is_active) changes"""
-    _invalidate_cache_for_group_members(instance)
+# Signal for swappable group model is connected in apps.py ready()

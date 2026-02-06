@@ -14,6 +14,19 @@ class PermissionEngineConfig(AppConfig):
     def ready(self):
         """Called when Django starts"""
         from django.conf import settings
+        from django.db.models.signals import post_save, post_delete
+
+        # Connect cache invalidation to swappable group model
+        from .models import get_group_model, _invalidate_cache_for_group_members
+        GroupModel = get_group_model()
+        post_save.connect(
+            lambda sender, instance, **kw: _invalidate_cache_for_group_members(instance),
+            sender=GroupModel,
+        )
+        post_delete.connect(
+            lambda sender, instance, **kw: _invalidate_cache_for_group_members(instance),
+            sender=GroupModel,
+        )
 
         # Get UPR config
         upr_config = getattr(settings, "UPR_CONFIG", {})

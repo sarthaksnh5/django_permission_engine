@@ -45,6 +45,9 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# Project-specific migrations (do not push to GitHub, e.g. UUID group FK / swappable model)
+django_permission_engine/migrations/0003_*.py
+
 # Environment
 .env
 .env.local

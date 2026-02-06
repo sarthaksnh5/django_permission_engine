@@ -168,8 +168,9 @@ class UserPermissionManagementViewSet(viewsets.ViewSet):
         POST /api/permissions/users/{user_id}/groups/assign/
         """
         from django.contrib.auth import get_user_model
-        from .models import PermissionGroup, UserGroupMembership
+        from .models import get_group_model, UserGroupMembership
         User = get_user_model()
+        GroupModel = get_group_model()
         try:
             user = User.objects.get(pk=user_id)
         except User.DoesNotExist:
@@ -191,10 +192,10 @@ class UserPermissionManagementViewSet(viewsets.ViewSet):
             )
         try:
             if group_id is not None:
-                group = PermissionGroup.objects.get(pk=group_id, is_active=True)
+                group = GroupModel.objects.get(pk=group_id, is_active=True)
             else:
-                group = PermissionGroup.objects.get(slug=group_slug, is_active=True)
-        except PermissionGroup.DoesNotExist:
+                group = GroupModel.objects.get(slug=group_slug, is_active=True)
+        except GroupModel.DoesNotExist:
             return Response(
                 {'error': 'Group not found'},
                 status=status.HTTP_404_NOT_FOUND
@@ -222,8 +223,9 @@ class UserPermissionManagementViewSet(viewsets.ViewSet):
         POST /api/permissions/users/{user_id}/groups/revoke/
         """
         from django.contrib.auth import get_user_model
-        from .models import PermissionGroup, UserGroupMembership
+        from .models import get_group_model, UserGroupMembership
         User = get_user_model()
+        GroupModel = get_group_model()
         try:
             user = User.objects.get(pk=user_id)
         except User.DoesNotExist:
@@ -240,10 +242,10 @@ class UserPermissionManagementViewSet(viewsets.ViewSet):
             )
         try:
             if group_id is not None:
-                group = PermissionGroup.objects.get(pk=group_id)
+                group = GroupModel.objects.get(pk=group_id)
             else:
-                group = PermissionGroup.objects.get(slug=group_slug)
-        except PermissionGroup.DoesNotExist:
+                group = GroupModel.objects.get(slug=group_slug)
+        except GroupModel.DoesNotExist:
             return Response(
                 {'error': 'Group not found'},
                 status=status.HTTP_404_NOT_FOUND

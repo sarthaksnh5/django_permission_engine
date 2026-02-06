@@ -201,6 +201,20 @@ UPR_CONFIG = {
 - The function receives the DRF `Request` object as the only parameter
 - The function must return a boolean (`True` = can manage, `False` = cannot manage)
 
+#### Optional: Custom group model (UPR_GROUP_MODEL)
+
+By default, the engine uses the built-in **PermissionGroup** model for user groups. You can use a custom group model (e.g. `DepartmentUserGroup`) by setting **UPR_GROUP_MODEL** in your settings:
+
+```python
+# settings.py
+UPR_GROUP_MODEL = 'myapp.DepartmentUserGroup'  # app_label.ModelName
+```
+
+- If **UPR_GROUP_MODEL** is not set or invalid, the engine falls back to **PermissionGroup**.
+- Your custom model must provide the same “shape” as the default: at least `name`, `slug`, `description`, `is_active`, `created_at`, `updated_at`. The recommended approach is to subclass **AbstractPermissionGroup** from `django_permission_engine.models`.
+- **GroupPermission** and **UserGroupMembership** reference the group via this setting, so all group CRUD and user–group APIs use your model when configured.
+- If your custom group model uses a **UUID primary key** (instead of the default integer/BigAutoField), the engine’s tables currently have `group_id` as bigint. Do not use the auto-generated **AlterField** migration (PostgreSQL cannot cast bigint to uuid). Use a migration that **RemoveField** then **AddField** the group FK instead. See [Custom group model with UUID primary key](docs/user-groups.md#custom-group-model-with-uuid-primary-key) in `docs/user-groups.md`.
+
 ### Step 3: Run Migrations
 
 ```bash

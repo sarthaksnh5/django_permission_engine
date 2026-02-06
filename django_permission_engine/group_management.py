@@ -7,15 +7,17 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import serializers
 
-from .models import PermissionGroup, GroupPermission, Permission
+from .models import get_group_model, GroupPermission, Permission
 from .permission_management import ConfigurablePermissionManagementPermission
+
+GroupModel = get_group_model()
 
 
 class PermissionGroupSerializer(serializers.ModelSerializer):
-    """Serializer for PermissionGroup list, create, retrieve, update."""
+    """Serializer for the configured group model (list, create, retrieve, update)."""
 
     class Meta:
-        model = PermissionGroup
+        model = GroupModel
         fields = ['id', 'name', 'slug', 'description', 'is_active', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
         extra_kwargs = {
@@ -26,7 +28,7 @@ class PermissionGroupSerializer(serializers.ModelSerializer):
     def validate_slug(self, value):
         if value is None or value == '':
             return value
-        qs = PermissionGroup.objects.filter(slug=value)
+        qs = GroupModel.objects.filter(slug=value)
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
@@ -47,8 +49,8 @@ class GroupManagementViewSet(viewsets.ModelViewSet):
     """
     permission_classes = [ConfigurablePermissionManagementPermission]
     serializer_class = PermissionGroupSerializer
-    queryset = PermissionGroup.objects.all().order_by('name')
-    # Restrict ordering to model fields (PermissionGroup has created_at, not created)
+    queryset = GroupModel.objects.all().order_by('name')
+    # Restrict ordering to model fields (group model has created_at, not created)
     ordering_fields = ['id', 'name', 'slug', 'created_at', 'updated_at', 'is_active']
     ordering = ['name']
 
@@ -60,7 +62,7 @@ class GroupManagementViewSet(viewsets.ModelViewSet):
         return qs
 
     def get_ordering(self):
-        """Return valid ordering; map 'created' -> 'created_at' (PermissionGroup has no 'created' field)."""
+        """Return valid ordering; map 'created' -> 'created_at' (group model has no 'created' field)."""
         ordering = super().get_ordering()
         if not ordering:
             return self.ordering

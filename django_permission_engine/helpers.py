@@ -12,7 +12,7 @@ class UPRHelper:
     Helper for a given user: direct permissions, groups, and effective permissions.
 
     - get_user_permissions(): direct UserPermission assignments (queryset)
-    - get_user_groups(): groups the user belongs to (queryset of PermissionGroup)
+    - get_user_groups(): groups the user belongs to (queryset of group model)
     - get_direct_permission_keys(): set of permission keys from direct assignments only
     - get_permission_keys_from_groups(): set of permission keys from groups only
     - get_effective_permission_keys(): set of all permission keys (direct + groups), cached
@@ -30,7 +30,7 @@ class UPRHelper:
     def get_user_groups(self):
         """
         Groups the user belongs to (active groups only).
-        Returns queryset of PermissionGroup.
+        Returns queryset of the configured group model.
         """
         from .models import UserGroupMembership
         return UserGroupMembership.objects.filter(
@@ -172,7 +172,9 @@ class UPRHelper:
         Returns:
             int: Number of groups assigned.
         """
-        from .models import PermissionGroup, UserGroupMembership, GroupPermission, UserPermission, Permission
+        from .models import get_group_model, UserGroupMembership, GroupPermission, UserPermission, Permission
+
+        GroupModel = get_group_model()
 
         if group_ids is None:
             group_ids = []
@@ -201,11 +203,11 @@ class UPRHelper:
         if not group_ids and not group_slugs:
             return 0
 
-        # 4. Assign new groups
+        # 4. Assign new groups (use swappable group model)
         if group_ids:
-            groups = PermissionGroup.objects.filter(pk__in=group_ids, is_active=True)
+            groups = GroupModel.objects.filter(pk__in=group_ids, is_active=True)
         else:
-            groups = PermissionGroup.objects.filter(slug__in=group_slugs, is_active=True)
+            groups = GroupModel.objects.filter(slug__in=group_slugs, is_active=True)
 
         to_create = [
             UserGroupMembership(user=self.user, group=group, granted_by=granted_by)
